@@ -119,6 +119,7 @@ if (isset($_GET['home'])) {
     <a href="register.php">📋 Register a Student</a>
     <a href="attendance.php">📊 View Attendance</a>
     <a href="registered_students.php">👥 View Registered Students</a>
+    <a href="student_dashboard.php">⚠️ Student Violations Dashboard</a>
     <a href="admin.php?home=true" class="return-home-button">🏠 Return Home</a>
 </div>
 

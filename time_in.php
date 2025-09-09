@@ -4,56 +4,83 @@ $error_message = '';
 $duplicate_message = '';
 
 // Connect to the database
-$conn = new mysqli("localhost", "root", "", "rfid_system");
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'config.php';
+include 'performance_config.php';
 
-// Always get attendance records (even if RFID not scanned yet)
-$attendance_sql = "SELECT a.*, s.name, s.student_number, s.image 
-                   FROM attendance a
-                   JOIN students s ON a.student_id = s.id
-                   ORDER BY a.id DESC";
-$attendance_result = $conn->query($attendance_sql);
-while ($row = $attendance_result->fetch_assoc()) {
-    $attendance_records[] = $row;
+// Get database connection from pool
+$pool = DatabasePool::getInstance();
+$conn = $pool->getConnection();
+
+// Always get attendance records with caching
+$attendanceCacheKey = 'current_attendance_' . date('Y-m-d-H-i');
+$attendance_records = SimpleCache::get($attendanceCacheKey);
+
+if ($attendance_records === false) {
+    $attendance_sql = "SELECT SQL_CACHE a.*, s.name, s.student_number, s.image 
+                       FROM attendance a
+                       JOIN students s ON a.student_id = s.id
+                       ORDER BY a.id DESC
+                       LIMIT 50";
+    $attendance_result = $conn->query($attendance_sql);
+    $attendance_records = [];
+    while ($row = $attendance_result->fetch_assoc()) {
+        $attendance_records[] = $row;
+    }
+    
+    // Cache for 2 minutes for real-time updates
+    SimpleCache::set($attendanceCacheKey, $attendance_records, 120);
 }
 
 // If RFID is passed
 if (isset($_GET['rfid'])) {
-    $rfid = $_GET['rfid'];
+    $rfid = trim($_GET['rfid']);
 
-    // Look up student by RFID
-    $student_sql = "SELECT * FROM students WHERE rfid = '$rfid'";
-    $student_result = $conn->query($student_sql);
+    // Look up student by RFID using prepared statement
+    $student_stmt = $conn->prepare("SELECT * FROM students WHERE rfid = ?");
+    $student_stmt->bind_param("s", $rfid);
+    $student_stmt->execute();
+    $student_result = $student_stmt->get_result();
 
     if ($student_result->num_rows > 0) {
         $student = $student_result->fetch_assoc();
 
-        // Check if the student already time-in without timing-out
-        $attendance_check_sql = "SELECT * FROM attendance 
-                                 WHERE student_id = '" . $student['id'] . "' 
-                                 AND time_out IS NULL";
-        $attendance_check_result = $conn->query($attendance_check_sql);
+        // Check if the student already time-in without timing-out using prepared statement
+        $attendance_check_stmt = $conn->prepare("SELECT * FROM attendance 
+                                                 WHERE student_id = ? 
+                                                 AND time_out IS NULL");
+        $attendance_check_stmt->bind_param("i", $student['id']);
+        $attendance_check_stmt->execute();
+        $attendance_check_result = $attendance_check_stmt->get_result();
 
         if ($attendance_check_result->num_rows > 0) {
             $duplicate_message = "This student is already marked as time-in.";
         } else {
-            // Log new time-in
-            $conn->query("INSERT INTO attendance (student_id, time_in) 
-                          VALUES ('" . $student['id'] . "', NOW())");
+            // Log new time-in using prepared statement
+            $insert_stmt = $conn->prepare("INSERT INTO attendance (student_id, time_in) VALUES (?, NOW())");
+            $insert_stmt->bind_param("i", $student['id']);
+            $insert_stmt->execute();
+            $insert_stmt->close();
 
-            // Refresh records
+            // Clear cache to force refresh
+            SimpleCache::delete('current_attendance_' . date('Y-m-d-H-i'));
+            SimpleCache::delete('today_attendance_' . date('Y-m-d') . '_' . date('H:i'));
+
+            // Refresh records with new data
             $attendance_records = [];
             $attendance_result = $conn->query($attendance_sql);
             while ($row = $attendance_result->fetch_assoc()) {
                 $attendance_records[] = $row;
             }
         }
+        $attendance_check_stmt->close();
     } else {
         $error_message = "RFID isn't registered.";
     }
+    $student_stmt->close();
 }
+
+// Release connection back to pool
+$pool->releaseConnection($conn);
 ?>
 <!DOCTYPE html>
 <html lang="en">

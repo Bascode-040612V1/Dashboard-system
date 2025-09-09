@@ -2,38 +2,65 @@
 // Start session to store admin status
 session_start();
 
-// Admin credentials (for demo; replace with DB in production)
-$valid_rfid = "3870770196";
-$valid_password = "admin123"; // Change this to your actual admin password
+// Include database connection
+include 'config.php';
 
 // Step 1: RFID verification
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['rfid_number']) && !isset($_POST['password'])) {
-        $rfid_number = $_POST['rfid_number'];
-        if ($rfid_number === $valid_rfid) {
-            $_SESSION['pending_admin_rfid'] = $rfid_number; // Temporarily store RFID
+        $rfid_number = trim($_POST['rfid_number']);
+        
+        // Check if RFID exists in admin table using prepared statement
+        $stmt = $conn->prepare("SELECT id, username, rfid FROM admins WHERE rfid = ?");
+        $stmt->bind_param("s", $rfid_number);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows > 0) {
+            $admin = $result->fetch_assoc();
+            $_SESSION['pending_admin_rfid'] = $rfid_number;
+            $_SESSION['pending_admin_id'] = $admin['id'];
             $show_password_form = true;
         } else {
             $error_message = "Invalid RFID number. Please try again.";
-            // Clear the RFID input after failure
             $_POST['rfid_number'] = '';
         }
+        $stmt->close();
     }
 
     // Step 2: Password verification
     elseif (isset($_POST['password']) && isset($_SESSION['pending_admin_rfid'])) {
         $password = $_POST['password'];
-        if ($password === $valid_password) {
-            $_SESSION['is_admin_authenticated'] = true;
-            unset($_SESSION['pending_admin_rfid']); // Clear temporary RFID
-            header("Location: admin.php");
-            exit();
-        } else {
-            $show_password_form = true;
-            $error_message = "Incorrect password. Please try again.";
+        $admin_id = $_SESSION['pending_admin_id'];
+        
+        // Get admin password hash from database
+        $stmt = $conn->prepare("SELECT password, username FROM admins WHERE id = ?");
+        $stmt->bind_param("i", $admin_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows > 0) {
+            $admin = $result->fetch_assoc();
+            
+            // Verify password using password_verify for hashed passwords
+            // For backward compatibility, also check plain text (remove this after updating all passwords)
+            if (password_verify($password, $admin['password']) || $password === $admin['password']) {
+                $_SESSION['is_admin_authenticated'] = true;
+                $_SESSION['admin_username'] = $admin['username'];
+                unset($_SESSION['pending_admin_rfid']);
+                unset($_SESSION['pending_admin_id']);
+                header("Location: admin.php");
+                exit();
+            } else {
+                $show_password_form = true;
+                $error_message = "Incorrect password. Please try again.";
+            }
         }
+        $stmt->close();
     }
 }
+
+$conn->close();
 ?>
 
 <!DOCTYPE html>

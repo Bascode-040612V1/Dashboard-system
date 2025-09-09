@@ -9,23 +9,16 @@ if (!isset($_SESSION['is_admin_authenticated']) || $_SESSION['is_admin_authentic
 }
 
 // Connect to the database
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "rfid_system";
+include 'config.php';
 
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+$message = '';
 
 // Handle update request
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update'])) {
-    $student_id = $_POST['student_id'];
-    $name = $_POST['name'];
-    $student_number = $_POST['student_number'];
-    $rfid = $_POST['rfid'];
+    $student_id = (int)$_POST['student_id'];
+    $name = trim($_POST['name']);
+    $student_number = trim($_POST['student_number']);
+    $rfid = trim($_POST['rfid']);
 
     $image_path = $_POST['current_image']; // default to existing image
 
@@ -40,29 +33,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update'])) {
         }
     }
 
-    $update_sql = "UPDATE students SET name='$name', student_number='$student_number', rfid='$rfid', image='$image_path' WHERE id='$student_id'";
+    // Use prepared statement for update
+    $update_stmt = $conn->prepare("UPDATE students SET name=?, student_number=?, rfid=?, image=? WHERE id=?");
+    $update_stmt->bind_param("ssssi", $name, $student_number, $rfid, $image_path, $student_id);
 
-    if ($conn->query($update_sql) === TRUE) {
+    if ($update_stmt->execute()) {
         $message = "Student updated successfully!";
     } else {
-        $message = "Error updating record: " . $conn->error;
+        $message = "Error updating record: " . $update_stmt->error;
     }
+    $update_stmt->close();
 }
 
 // Handle delete request
 if (isset($_GET['delete_id'])) {
-    $delete_id = $_GET['delete_id'];
-    $delete_sql = "DELETE FROM students WHERE id='$delete_id'";
+    $delete_id = (int)$_GET['delete_id'];
+    $delete_stmt = $conn->prepare("DELETE FROM students WHERE id=?");
+    $delete_stmt->bind_param("i", $delete_id);
 
-    if ($conn->query($delete_sql) === TRUE) {
+    if ($delete_stmt->execute()) {
         $message = "Student deleted successfully!";
     } else {
-        $message = "Error deleting record: " . $conn->error;
+        $message = "Error deleting record: " . $delete_stmt->error;
     }
+    $delete_stmt->close();
 }
 
 // Fetch all students from the database
-$sql = "SELECT * FROM students";
+$sql = "SELECT * FROM students ORDER BY name ASC";
 $result = $conn->query($sql);
 
 $conn->close();

@@ -1,48 +1,43 @@
 <?php
 // Connect to the database
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "rfid_system";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'config.php';
 
 $successMessage = '';
 $nameError = $studentNumberError = $rfidError = '';
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
-    $rfid = $_POST['rfid'];
+    $rfid = trim($_POST['rfid']);
 
-// Validate RFID length (must be exactly 10 characters)
-if (strlen($rfid) !== 10) {
-    $rfidError = "RFID must be exactly 10 characters.";
-}
+    // Validate RFID length (must be exactly 10 characters)
+    if (strlen($rfid) !== 10) {
+        $rfidError = "RFID must be exactly 10 characters.";
+    }
 
-    $checkRfidSql = "SELECT * FROM rfid_scans WHERE rfid_number = '$rfid'";
-    $checkRfidResult = $conn->query($checkRfidSql);
-
+    // Use prepared statement to check if RFID exists
+    $checkRfidStmt = $conn->prepare("SELECT * FROM rfid_scans WHERE rfid_number = ?");
+    $checkRfidStmt->bind_param("s", $rfid);
+    $checkRfidStmt->execute();
+    $checkRfidResult = $checkRfidStmt->get_result();
 
     if ($checkRfidResult->num_rows > 0) {
         $rfidError = "The RFID number already exists. Please choose a different RFID number.";
     }
 
     if (empty($rfidError)) {
-
-      
-
-      $sql = "INSERT INTO rfid_scans (rfid_number) VALUES ('$rfid')";
-
-
-        if ($conn->query($sql) === TRUE) {
+        // Use prepared statement to insert new RFID
+        $insertStmt = $conn->prepare("INSERT INTO rfid_scans (rfid_number) VALUES (?)");
+        $insertStmt->bind_param("s", $rfid);
+        
+        if ($insertStmt->execute()) {
             $successMessage = "Student registered successfully!";
         } else {
-            echo "Error: " . $sql . "<br>" . $conn->error;
+            error_log("Database error: " . $insertStmt->error);
+            $rfidError = "Registration failed. Please try again.";
         }
+        $insertStmt->close();
     }
+    $checkRfidStmt->close();
 }
 
 $conn->close();

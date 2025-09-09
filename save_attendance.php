@@ -1,9 +1,5 @@
 <?php
-$conn = new mysqli("localhost", "root", "", "rfid_system");
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+include 'config.php';
 
 // Copy today's attendance to saved_attendance
 $conn->query("
@@ -20,3 +16,4 @@ $conn->close();
 
 header("Location: attendance.php");
 exit;
+?>

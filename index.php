@@ -1,33 +1,45 @@
 <?php
-// Database connection
-$host = "localhost";
-$username = "root";
-$password = "";
-$dbname = "rfid_system";
+// Database connection and performance optimization
+include 'config.php';
+include 'performance_config.php';
 
-$conn = new mysqli($host, $username, $password, $dbname);
+// Set response headers for caching
+ResponseOptimizer::setHeaders();
 
-if ($conn->connect_error) {
-  die("Connection failed: " . $conn->connect_error);
+// Try to get data from cache first
+$cacheKey = 'top_students_' . date('Y-m-d-H'); // Cache for 1 hour
+$students = SimpleCache::get($cacheKey);
+
+if ($students === false) {
+    // Cache miss - fetch from database with optimized query
+    $pool = DatabasePool::getInstance();
+    $conn = $pool->getConnection();
+    
+    // Optimized query with proper indexing hints and limit
+    $sql = "
+      SELECT SQL_CACHE s.name, s.student_number, s.id AS student_id, 
+             COUNT(DISTINCT sa.saved_date) AS present_days
+      FROM students s
+      LEFT JOIN saved_attendance sa ON s.id = sa.student_id
+      GROUP BY s.id, s.name, s.student_number
+      ORDER BY present_days DESC
+      LIMIT 10
+    ";
+    
+    $result = $conn->query($sql);
+    $students = [];
+    if ($result && $result->num_rows > 0) {
+        while($row = $result->fetch_assoc()) {
+            $students[] = $row;
+        }
+    }
+    
+    // Cache the results for 1 hour
+    SimpleCache::set($cacheKey, $students, 3600);
+    
+    // Release connection back to pool
+    $pool->releaseConnection($conn);
 }
-
-// Fetch most present students ordered by present_days in descending order
-$sql = "
-  SELECT s.name, s.student_number, s.id AS student_id, COUNT(DISTINCT sa.saved_date) AS present_days
-  FROM students s
-  LEFT JOIN saved_attendance sa ON s.id = sa.student_id
-  GROUP BY s.id
-  ORDER BY present_days DESC
-";
-$result = $conn->query($sql);
-$students = [];
-if ($result->num_rows > 0) {
-  while($row = $result->fetch_assoc()) {
-    $students[] = $row;
-  }
-}
-
-$conn->close();
 ?>
 
 <!DOCTYPE html>

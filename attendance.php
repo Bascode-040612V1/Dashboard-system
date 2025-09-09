@@ -1,4 +1,7 @@
 <?php
+include 'config.php';
+include 'performance_config.php';
+
 $attendance_records = [];
 $absentees = [];
 $error_message = '';
@@ -7,17 +10,25 @@ $selected_date = '';
 $today = date('Y-m-d');
 $formatted_date_header = '';
 
-$conn = new mysqli("localhost", "root", "", "rfid_system");
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+// Set caching headers
+ResponseOptimizer::setHeaders();
 
-// Fetch available saved dates
-$date_query = "SELECT DISTINCT saved_date FROM saved_attendance ORDER BY saved_date DESC";
-$date_result = $conn->query($date_query);
-$dates = [];
-while ($row = $date_result->fetch_assoc()) {
-    $dates[] = $row['saved_date'];
+// Get database connection from pool
+$pool = DatabasePool::getInstance();
+$conn = $pool->getConnection();
+
+// Cache available dates (refresh every hour)
+$datesCacheKey = 'available_dates';
+$dates = SimpleCache::get($datesCacheKey);
+
+if ($dates === false) {
+    $date_query = "SELECT DISTINCT saved_date FROM saved_attendance ORDER BY saved_date DESC LIMIT 30";
+    $date_result = $conn->query($date_query);
+    $dates = [];
+    while ($row = $date_result->fetch_assoc()) {
+        $dates[] = $row['saved_date'];
+    }
+    SimpleCache::set($datesCacheKey, $dates, 3600); // Cache for 1 hour
 }
 
 // Save today's attendance
@@ -25,71 +36,134 @@ if (isset($_POST['save_attendance'])) {
     $fetch_query = "SELECT a.*, s.name, s.student_number, s.image
                     FROM attendance a
                     JOIN students s ON a.student_id = s.id
-                    WHERE DATE(a.time_in) = '$today'";
-    $fetch_result = $conn->query($fetch_query);
+                    WHERE DATE(a.time_in) = ?";
+    $fetch_stmt = $conn->prepare($fetch_query);
+    $fetch_stmt->bind_param("s", $today);
+    $fetch_stmt->execute();
+    $fetch_result = $fetch_stmt->get_result();
     
     while ($row = $fetch_result->fetch_assoc()) {
         $student_id = $row['student_id'];
-        $name = $conn->real_escape_string($row['name']);
-        $student_number = $conn->real_escape_string($row['student_number']);
-        $image = $conn->real_escape_string($row['image']);
+        $name = $row['name'];
+        $student_number = $row['student_number'];
+        $image = $row['image'];
         $saved_time_in = $row['time_in'];
         $saved_time_out = $row['time_out'];
         
-        $insert = "INSERT INTO saved_attendance (student_id, name, student_number, image, saved_time_in, saved_time_out, saved_date)
-                   VALUES ('$student_id', '$name', '$student_number', '$image', '$saved_time_in', '$saved_time_out', '$today')";
-        $conn->query($insert);
+        $insert_stmt = $conn->prepare("INSERT INTO saved_attendance (student_id, name, student_number, image, saved_time_in, saved_time_out, saved_date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $insert_stmt->bind_param("issssss", $student_id, $name, $student_number, $image, $saved_time_in, $saved_time_out, $today);
+        $insert_stmt->execute();
+        $insert_stmt->close();
     }
+    $fetch_stmt->close();
 
-    $conn->query("DELETE FROM attendance WHERE DATE(time_in) = '$today'");
+    $delete_stmt = $conn->prepare("DELETE FROM attendance WHERE DATE(time_in) = ?");
+    $delete_stmt->bind_param("s", $today);
+    $delete_stmt->execute();
+    $delete_stmt->close();
+    
     $success_message = "Today's attendance saved and cleared successfully!";
 }
 
-// Get attendance records and absentees
+// Get attendance records and absentees with caching
 if (isset($_POST['selected_date']) && $_POST['selected_date'] != '') {
     $selected_date = $_POST['selected_date'];
     $formatted_date_header = date('F d, Y', strtotime($selected_date)); // Format for the header
 
-    // Fetch saved attendance
-    $sql = "SELECT * FROM saved_attendance WHERE saved_date = '$selected_date' ORDER BY saved_time_in DESC";
-    $result = $conn->query($sql);
-    while ($row = $result->fetch_assoc()) {
-        $attendance_records[] = $row;
+    // Try cache first for historical data
+    $attendanceCacheKey = 'attendance_' . $selected_date;
+    $attendance_records = SimpleCache::get($attendanceCacheKey);
+    
+    if ($attendance_records === false) {
+        // Fetch saved attendance using prepared statement
+        $stmt = $conn->prepare("SELECT SQL_CACHE * FROM saved_attendance WHERE saved_date = ? ORDER BY saved_time_in DESC");
+        $stmt->bind_param("s", $selected_date);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $attendance_records = [];
+        while ($row = $result->fetch_assoc()) {
+            $attendance_records[] = $row;
+        }
+        $stmt->close();
+        
+        // Cache historical data for 1 hour
+        SimpleCache::set($attendanceCacheKey, $attendance_records, 3600);
     }
 
-    // Fetch absentees for saved date
-    $absent_query = "
-        SELECT * FROM students 
-        WHERE id NOT IN (
-            SELECT student_id FROM saved_attendance WHERE saved_date = '$selected_date'
-        )
-    ";
+    // Fetch absentees for saved date using prepared statement with caching
+    $absenteesCacheKey = 'absentees_' . $selected_date;
+    $absentees = SimpleCache::get($absenteesCacheKey);
+    
+    if ($absentees === false) {
+        $absent_stmt = $conn->prepare("SELECT SQL_CACHE * FROM students 
+            WHERE id NOT IN (
+                SELECT student_id FROM saved_attendance WHERE saved_date = ?
+            )");
+        $absent_stmt->bind_param("s", $selected_date);
+        $absent_stmt->execute();
+        $absent_result = $absent_stmt->get_result();
+        $absentees = [];
+        while ($row = $absent_result->fetch_assoc()) {
+            $absentees[] = $row;
+        }
+        $absent_stmt->close();
+        
+        // Cache absentees for 1 hour
+        SimpleCache::set($absenteesCacheKey, $absentees, 3600);
+    }
 } else {
-    // Fetch today's attendance
-    $sql = "SELECT a.*, s.name, s.student_number, s.image
-            FROM attendance a
-            JOIN students s ON a.student_id = s.id
-            WHERE DATE(a.time_in) = '$today'
-            ORDER BY a.time_in DESC";
-    $result = $conn->query($sql);
-    while ($row = $result->fetch_assoc()) {
-        $attendance_records[] = $row;
+    // Today's attendance - cache for shorter time for real-time updates
+    $todayCacheKey = 'today_attendance_' . $today . '_' . date('H:i');
+    $attendance_records = SimpleCache::get($todayCacheKey);
+    
+    if ($attendance_records === false) {
+        // Fetch today's attendance using prepared statement
+        $stmt = $conn->prepare("SELECT SQL_CACHE a.*, s.name, s.student_number, s.image
+                FROM attendance a
+                JOIN students s ON a.student_id = s.id
+                WHERE DATE(a.time_in) = ?
+                ORDER BY a.time_in DESC");
+        $stmt->bind_param("s", $today);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $attendance_records = [];
+        while ($row = $result->fetch_assoc()) {
+            $attendance_records[] = $row;
+        }
+        $stmt->close();
+        
+        // Cache for 5 minutes for real-time updates
+        SimpleCache::set($todayCacheKey, $attendance_records, 300);
     }
 
-    // Fetch absentees for today
-    $absent_query = "
-        SELECT * FROM students 
-        WHERE id NOT IN (
-            SELECT student_id FROM attendance WHERE DATE(time_in) = '$today'
-        )
-    ";
+    // Fetch absentees for today using prepared statement with caching
+    $todayAbsenteesCacheKey = 'today_absentees_' . $today . '_' . date('H');
+    $absentees = SimpleCache::get($todayAbsenteesCacheKey);
+    
+    if ($absentees === false) {
+        $absent_stmt = $conn->prepare("SELECT SQL_CACHE * FROM students 
+            WHERE id NOT IN (
+                SELECT student_id FROM attendance WHERE DATE(time_in) = ?
+            )");
+        $absent_stmt->bind_param("s", $today);
+        $absent_stmt->execute();
+        $absent_result = $absent_stmt->get_result();
+        $absentees = [];
+        while ($row = $absent_result->fetch_assoc()) {
+            $absentees[] = $row;
+        }
+        $absent_stmt->close();
+        
+        // Cache absentees for 1 hour
+        SimpleCache::set($todayAbsenteesCacheKey, $absentees, 3600);
+    }
+    
     $formatted_date_header = date('F d, Y', strtotime($today)); // Default header text for today
 }
 
-$absent_result = $conn->query($absent_query);
-while ($row = $absent_result->fetch_assoc()) {
-    $absentees[] = $row;
-}
+// Release connection back to pool
+$pool->releaseConnection($conn);
 ?>
 
 <!DOCTYPE html>
@@ -256,6 +330,19 @@ while ($row = $absent_result->fetch_assoc()) {
         <?php endforeach; ?>
       </select>
     </form>
+    
+    <!-- Export Buttons -->
+    <div style="margin-top: 15px; text-align: center;">
+      <button type="button" onclick="exportAttendance('current')" style="padding:10px 15px; border-radius:8px; border:none; background:#3498db; color:white; cursor:pointer; margin:0 5px;">
+        📊 Export Current Day
+      </button>
+      <button type="button" onclick="exportAttendance('saved')" style="padding:10px 15px; border-radius:8px; border:none; background:#27ae60; color:white; cursor:pointer; margin:0 5px;">
+        📋 Export Selected Date
+      </button>
+      <button type="button" onclick="exportAttendance('summary')" style="padding:10px 15px; border-radius:8px; border:none; background:#e67e22; color:white; cursor:pointer; margin:0 5px;">
+        📄 Export Summary Report
+      </button>
+    </div>
   </div>
 
   <!-- Attendance Table -->
@@ -338,6 +425,28 @@ while ($row = $absent_result->fetch_assoc()) {
     var formattedDateString = formattedDate.toLocaleDateString(undefined, dateOptions);
     document.getElementById('attendance-header').innerHTML = 'Attendance for ' + formattedDateString;
   });
+  
+  // Export functions
+  function exportAttendance(type) {
+    const selectedDate = document.getElementById('attendance_date').value;
+    const currentDate = '<?php echo date('Y-m-d'); ?>';
+    
+    let exportUrl = 'export_attendance.php?type=' + type;
+    
+    if (type === 'current') {
+      exportUrl += '&date=' + currentDate;
+    } else if (type === 'saved' && selectedDate) {
+      exportUrl += '&date=' + selectedDate;
+    } else if (type === 'saved' && !selectedDate) {
+      exportUrl += '&date=' + currentDate;
+    }
+    
+    // Always include absentees
+    exportUrl += '&include_absentees=yes';
+    
+    // Open export in new window/tab for download
+    window.open(exportUrl, '_blank');
+  }
 </script>
 
 </body>
