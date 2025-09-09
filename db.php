@@ -1,14 +1,14 @@
 <?php
-$servername = "localhost";
-$username = "root"; // Default username in XAMPP
-$password = ""; // Default password in XAMPP is empty
-$dbname = "rfid_system"; // Your database name
+// This file is deprecated - use config.php instead
+// Redirecting to maintain backward compatibility
+require_once 'config.php';
 
-// Create connection
-$conn = new mysqli($servername, $username, $password, $dbname);
+// Legacy variables for backward compatibility
+$servername = DB_HOST;
+$username = DB_USER;
+$password = DB_PASS;
+$dbname = DB_NAME;
 
-// Check connection
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
-}
+// Note: Please update your code to use config.php directly
+// This file will be removed in future versions
 ?>

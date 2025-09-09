@@ -1,13 +1,15 @@
 <?php
-$host = 'localhost';
-$user = 'root';
-$password = ''; // Use your actual password
-$database = 'rfid_system';
+// This file is deprecated - use config.php instead
+// Redirecting to maintain backward compatibility
+require_once 'config.php';
 
-$mysqli = new mysqli($host, $user, $password, $database);
+// Legacy variables for backward compatibility
+$host = DB_HOST;
+$user = DB_USER;
+$password = DB_PASS;
+$database = DB_NAME;
+$mysqli = $conn;
 
-// Check connection
-if ($mysqli->connect_error) {
-    die("Connection failed: " . $mysqli->connect_error);
-}
+// Note: Please update your code to use config.php directly
+// This file will be removed in future versions
 ?>

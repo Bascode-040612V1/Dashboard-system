@@ -30,6 +30,7 @@ SET time_zone = "+00:00";
 CREATE TABLE `admins` (
   `id` int(11) NOT NULL,
   `username` varchar(50) NOT NULL,
+  `rfid` varchar(50) NOT NULL,
   `password` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -37,9 +38,9 @@ CREATE TABLE `admins` (
 -- Dumping data for table `admins`
 --
 
-INSERT INTO `admins` (`id`, `username`, `password`) VALUES
-(2, 'ajJ', '12345678'),
-(3, 'Guard', '12345678');
+INSERT INTO `admins` (`id`, `username`, `rfid`, `password`) VALUES
+(2, 'ajJ', '3870770196', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'),
+(3, 'Guard', '3870770197', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi');
 
 -- --------------------------------------------------------
 
@@ -63,6 +64,29 @@ CREATE TABLE `attendance` (
 INSERT INTO `attendance` (`id`, `student_id`, `time_in`, `time_out`, `rfid`, `date`) VALUES
 (163, 29, '2025-07-15 10:39:25', NULL, NULL, '2025-07-15'),
 (164, 26, '2025-07-15 10:39:37', NULL, NULL, '2025-07-15');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `rfid_admin_scans`
+--
+
+CREATE TABLE `rfid_admin_scans` (
+  `id` int(11) NOT NULL,
+  `rfid_number` varchar(50) NOT NULL,
+  `admin_username` varchar(50) DEFAULT NULL,
+  `admin_role` varchar(20) DEFAULT 'admin',
+  `scanned_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `is_registered` tinyint(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `rfid_admin_scans`
+--
+
+INSERT INTO `rfid_admin_scans` (`id`, `rfid_number`, `admin_username`, `admin_role`, `scanned_at`, `is_registered`) VALUES
+(1, '3870770196', 'ajJ', 'admin', '2025-09-09 12:00:00', 1),
+(2, '3870770197', 'Guard', 'admin', '2025-09-09 12:05:00', 1);
 
 -- --------------------------------------------------------
 
@@ -170,7 +194,8 @@ INSERT INTO `students` (`id`, `name`, `student_number`, `rfid`, `image`) VALUES
 --
 ALTER TABLE `admins`
   ADD PRIMARY KEY (`id`),
-  ADD UNIQUE KEY `username` (`username`);
+  ADD UNIQUE KEY `username` (`username`),
+  ADD UNIQUE KEY `rfid` (`rfid`);
 
 --
 -- Indexes for table `attendance`
@@ -178,6 +203,13 @@ ALTER TABLE `admins`
 ALTER TABLE `attendance`
   ADD PRIMARY KEY (`id`),
   ADD KEY `student_id` (`student_id`);
+
+--
+-- Indexes for table `rfid_admin_scans`
+--
+ALTER TABLE `rfid_admin_scans`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `rfid_number` (`rfid_number`);
 
 --
 -- Indexes for table `rfid_scans`
@@ -215,6 +247,12 @@ ALTER TABLE `admins`
 --
 ALTER TABLE `attendance`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=165;
+
+--
+-- AUTO_INCREMENT for table `rfid_admin_scans`
+--
+ALTER TABLE `rfid_admin_scans`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `rfid_scans`

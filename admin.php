@@ -117,6 +117,7 @@ if (isset($_GET['home'])) {
 
     <!-- Action Boxes -->
     <a href="register.php">📋 Register a Student</a>
+    <a href="admin_register.php">🏷️ Register Admin RFID</a>
     <a href="attendance.php">📊 View Attendance</a>
     <a href="registered_students.php">👥 View Registered Students</a>
     <a href="student_dashboard.php">⚠️ Student Violations Dashboard</a>

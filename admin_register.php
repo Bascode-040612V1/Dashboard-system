@@ -1,6 +1,9 @@
 <?php
-// Simplified Student Registration - Only RFID required
-include 'config.php';
+// Simplified Admin RFID Registration - Only RFID required
+require_once 'config.php';
+
+// Require admin authentication to access this page
+requireAdminAuth();
 
 $response = ['status' => 'error', 'message' => ''];
 
@@ -11,19 +14,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (!validateRFID($rfid)) {
         $response['message'] = "RFID must be exactly 10 digits.";
     } else {
-        // Check if RFID already exists in rfid_scans
-        $existing_scan = fetchSingleResult($conn, "SELECT id FROM rfid_scans WHERE rfid_number = ?", [$rfid], "s");
+        // Check if RFID already exists in rfid_admin_scans
+        $existing_scan = fetchSingleResult($conn, "SELECT id FROM rfid_admin_scans WHERE rfid_number = ?", [$rfid], "s");
         
         if ($existing_scan) {
             $response['message'] = "RFID already registered.";
         } else {
-            // Insert into rfid_scans table
-            $stmt = executeQuery($conn, "INSERT INTO rfid_scans (rfid_number) VALUES (?)", [$rfid], "s");
+            // Insert into rfid_admin_scans table
+            $stmt = executeQuery($conn, "INSERT INTO rfid_admin_scans (rfid_number) VALUES (?)", [$rfid], "s");
             
             if ($stmt) {
                 $response['status'] = 'success';
-                $response['message'] = 'RFID scan recorded. Please check your app for registration.';
-                logActivity("RFID scanned for registration: $rfid");
+                $response['message'] = 'RFID scan recorded. Please check your app for admin registration.';
+                logActivity("Admin RFID scanned for registration: $rfid");
             } else {
                 $response['message'] = "Registration failed. Please try again.";
             }
@@ -43,7 +46,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>RFID Student Registration</title>
+    <title>RFID Admin Registration</title>
     <style>
         * {
             box-sizing: border-box;
@@ -115,7 +118,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             padding: 15px;
             font-size: 24px;
             text-align: center;
-            border: 3px solid #3498db;
+            border: 3px solid #e74c3c;
             border-radius: 10px;
             letter-spacing: 2px;
             font-family: monospace;
@@ -124,8 +127,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         .input-field:focus {
             outline: none;
-            border-color: #2980b9;
-            box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+            border-color: #c0392b;
+            box-shadow: 0 0 10px rgba(231, 76, 60, 0.3);
         }
 
         .status-message {
@@ -189,15 +192,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </div>
 
 <div class="container">
-    <h2>📱 RFID Student Registration</h2>
-    <p class="instruction">Scan or enter the 10-digit RFID number</p>
+    <h2>🔑 RFID Admin Registration</h2>
+    <p class="instruction">Scan or enter the 10-digit admin RFID number</p>
     
     <form id="rfidForm">
         <input type="text" 
                id="rfidInput" 
                name="rfid" 
                class="input-field" 
-               placeholder="RFID Number"
+               placeholder="Admin RFID Number"
                maxlength="10" 
                pattern="[0-9]{10}"
                autocomplete="off"
@@ -208,7 +211,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </div>
 
 <script>
-class RFIDRegistration {
+class AdminRFIDRegistration {
     constructor() {
         this.rfidInput = document.getElementById('rfidInput');
         this.statusMessage = document.getElementById('statusMessage');
@@ -260,7 +263,7 @@ class RFIDRegistration {
             formData.append('rfid', rfid);
             formData.append('ajax', '1');
             
-            const response = await fetch('register.php', {
+            const response = await fetch('admin_register.php', {
                 method: 'POST',
                 body: formData
             });
@@ -287,7 +290,8 @@ class RFIDRegistration {
             attempts++;
             
             try {
-                const response = await fetch(`check_student.php?rfid=${this.currentRFID}`);
+                // Check if admin RFID appears in admins table
+                const response = await fetch(`check_admin.php?rfid=${this.currentRFID}`);
                 const result = await response.json();
                 
                 if (result.status === 'found') {
@@ -316,13 +320,13 @@ class RFIDRegistration {
         this.statusMessage.className = 'status-message loading';
         this.statusMessage.innerHTML = `
             <div class="loading-animation"></div>
-            Please check your registration on the app for RFID: ${this.currentRFID}
+            Please check your admin registration app for RFID: ${this.currentRFID}
         `;
     }
 
     showSuccess() {
         this.statusMessage.className = 'status-message success';
-        this.statusMessage.innerHTML = '✅ Registration successful! Ready for next scan.';
+        this.statusMessage.innerHTML = '✅ Admin registration successful! Ready for next scan.';
     }
 
     showError(message) {
@@ -353,12 +357,7 @@ class RFIDRegistration {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    new RFIDRegistration();
-});
-</script>
-
-</body>
-</html>
+    new AdminRFIDRegistration();
 });
 </script>
 
